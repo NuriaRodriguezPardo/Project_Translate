@@ -1,32 +1,39 @@
-
 #include <Arduino.h>
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include "Audio.h"
+#include <SD.h>
+#include <Audio.h>
+#include <SPI.h>
+#include <Base64.h>
 
 
+// FUNCIONS
+// uint8_t* readAudioFromSD(const char* filename, size_t* audioSize);
+bool obtenerAudioDesdeSD(char* buffer, size_t bufferSize);
+String readAudioFileAndConvertToBase64(const char* filename);
 // String captureAudio();
 String transcribeSpeech(String audioData, const char* apiKey);
-
-String readAndTranscribeVoiceFile(const char* apiKey, const char* filePath);
-
-String getLanguageCode(const char* languageName);
-String translateText(String text, const char* apiKey, const char* targetLanguage);
+// String getLanguageCode(const char* languageName);
+// String translateText(String text, const char* apiKey, const char* targetLanguage);
 // void speakText(String text, const char* apiKey, const char* targetLanguage);
 
 
+// VARIABLES / CONTRASENYES
 const char* ssid = "RedmiNuria";
 const char* password = "Patata123";
 const char* apiKey = "AIzaSyCz4Pb-7OIi3Gs6LGgJ-XHZ2Xy__hRAeZQ";
-
-
-// Definir el pin del micrófono analógico
-const int pinMicrophone = A0;
+const char* filename = "/audio.WAV";
 
 // Función para conectar a WiFi
 void connectToWiFi() {
+    // Configurar DNS manualmente
+    // IPAddress dns1(8, 8, 8, 8); // DNS de Google
+    // IPAddress dns2(8, 8, 4, 4); // DNS de Google
+
+    // WiFi.config(INADDR_NONE, INADDR_NONE, INADDR_NONE, dns1, dns2);
     WiFi.begin(ssid, password);
     Serial.print("Conectando a WiFi");
     while (WiFi.status() != WL_CONNECTED) {
@@ -37,60 +44,110 @@ void connectToWiFi() {
     Serial.println("Conectado a la red WiFi");
 }
 
-// Función para inicializar
-/*
-void setup() {
-    Serial.begin(115200);
-    Serial.println("Inicio");
-    connectToWiFi();
-    pinMode(pinMicrophone, INPUT);
-}
-*/
-
-
 // setup() de ejemplo: 
 void setup() {
+    // Inicializar la comunicación serie
     Serial.begin(115200);
+    // Comienza la conexión WiFi
+    Serial.println();
+    Serial.println();
+    Serial.print("Conectando a ");
+    Serial.println(ssid);
+
+    // Inicializa la conexión WiFi
     WiFi.begin(ssid, password);
 
+    // Espera hasta que la conexión se realice
     while (WiFi.status() != WL_CONNECTED) {
-        delay(1000);
-        Serial.println("Conectando a WiFi...");
-    }
-    Serial.println("Conectado a WiFi");
-
-    // Inicializar el sistema de archivos SPIFFS
-    if (!SPIFFS.begin(true)) {
-        Serial.println("Error al montar el sistema de archivos SPIFFS");
-        return;
+        delay(500);
+        Serial.print(".");
     }
 
-    // Transcribir un archivo de voz llamado "audio.wav" ubicado en la raíz de SPIFFS
-    // String apiKey = "TU_API_KEY";
-    //String transcription = readAndTranscribeVoiceFile(apiKey.c_str(), "/proba.opus");
-    String transcription = readAndTranscribeVoiceFile(apiKey, "/proba.opus");
+    // Una vez conectado, imprime la dirección IP asignada
+    Serial.println("");
+    Serial.println("WiFi conectado.");
+    Serial.print("Dirección IP: ");
+    Serial.println(WiFi.localIP());
+    
+    // Esperar a que se inicialice Serial
+    while (!Serial) {}
 
-    Serial.println("Transcripción del archivo de voz:");
-    Serial.println(transcription);
+    const size_t bufferSize = 1024; // Define un tamaño de buffer adecuado
+    char audioBuffer[bufferSize];
 
-    // Obtener el código de idioma para "Spanish"
-    String languageName = "Spanish";
-    String languageCode = getLanguageCode(languageName.c_str());
+    if (obtenerAudioDesdeSD(audioBuffer, bufferSize)) {
+        Serial.println("Archivo de audio leído correctamente");
+        String audioBase64 = readAudioFileAndConvertToBase64(filename);
+        // Convertir el audio a texto
+        String transcribedText = transcribeSpeech(audioBase64, apiKey);
+        // Imprimir el texto transcrito
+        Serial.println("Texto transcrito:");
+        Serial.println(transcribedText);
+            
 
-    if (languageCode != "") {
-        Serial.println("Código del idioma " + languageName + ": " + languageCode);
-
-        // Traducir texto usando el código de idioma obtenido
-        String textToTranslate = "Hello, how are you?";
-        String translatedText = translateText(textToTranslate, apiKey, languageCode.c_str());
-        Serial.println("Texto traducido: " + translatedText);
-        //speakText(translatedText, apiKey, languageCode.c_str());
+        // Aquí puedes procesar el buffer de audio
+    } else {
+        Serial.println("Error al leer el archivo de audio");
     }
-    else {
-        Serial.println("No se encontró el código para el idioma " + languageName);
-    }
+    /*
+    // Traducir el texto
+    String TL = getLanguageCode("English"); // Código de idioma de destino (ejemplo: "es" para español)
+    // Convertir TL a un array de caracteres (char[])
+    char TLCharArray[TL.length() + 1];
+    TL.toCharArray(TLCharArray, TL.length() + 1);
+
+    // Traducir el texto
+    String translatedText = translateText(transcribedText, apiKey, TLCharArray);
+    // Imprimir
+    */
 }
 
+const int chipSelect = 39; // Cambia esto según el pin que uses
+
+bool obtenerAudioDesdeSD(char* buffer, size_t bufferSize) {
+  // Inicializar la tarjeta SD
+  SPI.begin(36, 37, 35); //  void begin(int8_t sck=-1, int8_t miso=-1, int8_t mosi=-1, int8_t ss=-1);
+  if (!SD.begin(chipSelect)) {
+    Serial.println("Error al montar la tarjeta SD");
+    return false;
+  }
+
+  // Abrir el archivo de audio
+  File archivo = SD.open("/audio.WAV", FILE_READ);
+  if (!archivo) {
+    Serial.println("Error al abrir el archivo de audio");
+    return false;
+  }
+
+  // Leer el contenido del archivo
+  size_t bytesRead = 0;
+  while (archivo.available() && bytesRead < bufferSize) {
+    buffer[bytesRead++] = archivo.read();
+  }
+
+  // Cerrar el archivo
+  archivo.close();
+
+  return true;
+}
+
+String readAudioFileAndConvertToBase64(const char* filename) {
+  File file = SD.open(filename, FILE_READ);
+  if (!file) {
+    Serial.println("Error al abrir el archivo para leer");
+    return "";
+  }
+
+  size_t size = file.size();
+  Serial.println(size);
+  uint8_t* buffer = (uint8_t*)malloc(size);
+  file.read(buffer, size);
+  file.close();
+
+  String base64Audio = base64::encode(buffer, size);
+  free(buffer);
+  return base64Audio;
+}
 
 
 // Función para capturar audio 
@@ -116,31 +173,10 @@ String captureAudio() {
 }
 */
 
-// Funcion de prueba para leer un fichero de voz
-String readAndTranscribeVoiceFile(const char* apiKey, const char* filePath) {
-    // Abrir el archivo de voz
-    File file = SPIFFS.open(filePath, "r");
-    if (!file) {
-        Serial.println("Error al abrir el archivo");
-        return "";
-    }
-
-    // Leer el contenido del archivo
-    String audioData;
-    while (file.available()) {
-        audioData += (char)file.read();
-    }
-
-    // Cerrar el archivo
-    file.close();
-
-    // Llamar a la función transcribeSpeech con los datos de audio
-    return transcribeSpeech(apiKey, audioData.c_str());
-}
-
-
 
 // Función para enviar audio a Google Cloud Speech-to-Text
+
+// Función para transcribir el audio utilizando Google Cloud Speech-to-Text
 String transcribeSpeech(String audioData, const char* apiKey) {
     HTTPClient http;
 
@@ -165,20 +201,29 @@ String transcribeSpeech(String audioData, const char* apiKey) {
     // Si la solicitud fue exitosa, obtener la transcripción
     if (httpResponseCode == HTTP_CODE_OK) {
         String response = http.getString();
-
+        /*
+        Serial.println("Respuesta de la API:");
+        Serial.println(response);
+        */
         // Analizar la respuesta JSON para obtener la transcripción
-        DynamicJsonDocument doc(1024);
-        deserializeJson(doc, response);
-        if (doc.containsKey("results")) {
-            JsonObject result = doc["results"][0];
-            if (result.containsKey("alternatives")) {
-                JsonObject alternative = result["alternatives"][0];
-                if (alternative.containsKey("transcript")) {
-                    transcribedText = alternative["transcript"].as<String>();
-                }
-            }
+        DynamicJsonDocument doc(4096); // Aumentado el tamaño del documento
+        DeserializationError error = deserializeJson(doc, response);
+
+        if (error) {
+            Serial.print("deserializeJson() failed: ");
+            Serial.println(error.c_str());
         } else {
-            Serial.println("No se encontró el campo 'results' en la respuesta JSON");
+            if (doc.containsKey("results")) {
+                JsonObject result = doc["results"][0];
+                if (result.containsKey("alternatives")) {
+                    JsonObject alternative = result["alternatives"][0];
+                    if (alternative.containsKey("transcript")) {
+                        transcribedText = alternative["transcript"].as<String>();
+                    }
+                }
+            } else {
+                Serial.println("No se encontró el campo 'results' en la respuesta JSON");
+            }
         }
     } else {
         Serial.print("Error en la solicitud: ");
@@ -193,6 +238,7 @@ String transcribeSpeech(String audioData, const char* apiKey) {
 
 
 // Función para obtener el código de idioma a partir del nombre del idioma
+/*
 String getLanguageCode(const char* languageName) {
     HTTPClient http;
     String url = "https://translation.googleapis.com/language/translate/v2/languages?key=";
@@ -201,6 +247,7 @@ String getLanguageCode(const char* languageName) {
 
     http.begin(url);
     int httpResponseCode = http.GET();
+
 
     String languageCode = "";
     if (httpResponseCode == HTTP_CODE_OK) {
@@ -226,52 +273,9 @@ String getLanguageCode(const char* languageName) {
     http.end();
     return languageCode;
 }
-
-
-/*PARA LA DETECCIÓN AUTOMARICA DEL IDIOMA
-String translateText(String text, const char* apiKey, const char* targetLanguage) {
-    HTTPClient http;
-
-    String url = "https://translation.googleapis.com/language/translate/v2?key=";
-    url += apiKey;
-
-    http.begin(url);
-    http.addHeader("Content-Type", "application/json");
-
-    String jsonBody = "{\"q\":\"";
-    jsonBody += text;
-    jsonBody += "\",\"source\":\"en\",\"target\":\"";
-    jsonBody += targetLanguage;
-    jsonBody += "\",\"format\":\"text\"}";
-
-    int httpResponseCode = http.POST(jsonBody);
-
-    String translatedText = "";
-
-    if (httpResponseCode == HTTP_CODE_OK) {
-        String response = http.getString();
-
-        // Parsear la respuesta JSON para obtener la traducción
-        DynamicJsonDocument doc(1024);
-        DeserializationError error = deserializeJson(doc, response);
-
-        if (error) {
-            Serial.print("deserializeJson() failed: ");
-            Serial.println(error.c_str());
-        } else {
-            translatedText = doc["data"]["translations"][0]["translatedText"].as<String>();
-        }
-    } else {
-        Serial.print("Error en la solicitud: ");
-        Serial.println(httpResponseCode);
-    }
-
-    http.end();
-
-    return translatedText;
-}
 */
-
+// TRADUCTOR
+/*
 String translateText(String text, const char* apiKey, const char* targetLanguage) {
     HTTPClient http;
 
@@ -315,7 +319,7 @@ String translateText(String text, const char* apiKey, const char* targetLanguage
 
     return translatedText;
 }
-
+*/
 
 // Función para sintetizar texto a voz
 /*
@@ -351,7 +355,50 @@ void speakText(String text, const char* apiKey, const char* targetLanguage) {
 }
 */
 
+/*
+void speakText(String text, const char* apiKey, const char* targetLanguage) {
+    HTTPClient http;
+    String url = "https://texttospeech.googleapis.com/v1/text:synthesize?key=";
+    url += apiKey;
+
+    http.begin(url);
+    http.addHeader("Content-Type", "application/json");
+
+    String jsonBody = "{\"input\":{\"text\":\"";
+    jsonBody += text;
+    jsonBody += "\"},\"voice\":{\"languageCode\":\"";
+    jsonBody += targetLanguage;
+    jsonBody += "\"},\"audioConfig\":{\"audioEncoding\":\"MP3\"}}";
+
+    int httpResponseCode = http.POST(jsonBody);
+
+    if (httpResponseCode == HTTP_CODE_OK) {
+        String response = http.getString();
+        // Extraer y retornar el contenido de audio
+        int audioStart = response.indexOf("\"audioContent\": \"") + 17;
+        int audioEnd = response.indexOf("\"", audioStart);
+        String audioContent = response.substring(audioStart, audioEnd);
+        return audioContent;
+    } else {
+        Serial.print("Error en la solicitud: ");
+        Serial.println(httpResponseCode);
+        return "";
+    }
+
+    http.end();
+}
+*/
+
 void loop() {
+    /*
+        if (aac->isRunning()) {
+        if (!aac->loop()) {
+            aac->stop();
+        }
+    } else {
+        // Audio terminado
+    }
+    */
     /*
     // Capturar audio
     String audioData = captureAudio();
@@ -375,5 +422,6 @@ void loop() {
 
     delay(5000); // Esperar un tiempo antes de la próxima transcripción
     */
+
 }
 
