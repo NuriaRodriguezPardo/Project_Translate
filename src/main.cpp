@@ -13,7 +13,7 @@
 // FUNCIONS
 // uint8_t* readAudioFromSD(const char* filename, size_t* audioSize);
 bool obtenerAudioDesdeSD(char* buffer, size_t bufferSize);
-String readAudioFileAndConvertToBase64(const char* filename);
+// String readAudioFileAndConvertToBase64(const char* filename);
 // String captureAudio();
 String transcribeSpeech(String audioData, const char* apiKey);
 // String getLanguageCode(const char* languageName);
@@ -77,9 +77,9 @@ void setup() {
 
     if (obtenerAudioDesdeSD(audioBuffer, bufferSize)) {
         Serial.println("Archivo de audio leído correctamente");
-        String audioBase64 = readAudioFileAndConvertToBase64(filename);
+        // String audioBase64 = readAudioFileAndConvertToBase64(filename);
         // Convertir el audio a texto
-        String transcribedText = transcribeSpeech(audioBase64, apiKey);
+        String transcribedText = transcribeSpeech(audioBuffer, apiKey);
         // Imprimir el texto transcrito
         Serial.println("Texto transcrito:");
         Serial.println(transcribedText);
@@ -131,24 +131,42 @@ bool obtenerAudioDesdeSD(char* buffer, size_t bufferSize) {
   return true;
 }
 
+/*
 String readAudioFileAndConvertToBase64(const char* filename) {
+  // Abrir el archivo en modo lectura
   File file = SD.open(filename, FILE_READ);
   if (!file) {
     Serial.println("Error al abrir el archivo para leer");
     return "";
   }
 
-  size_t size = file.size();
-  Serial.println(size);
-  uint8_t* buffer = (uint8_t*)malloc(size);
-  file.read(buffer, size);
+  // Obtener el tamaño del archivo
+  size_t fileSize = file.size();
+  // Serial.print("Tamaño del archivo: ");
+  // Serial.println(fileSize);
+
+  // Leer y convertir el contenido del archivo a Base64 en partes
+  const size_t bufferSize = 512; // Tamaño del búfer de lectura
+  uint8_t buffer[bufferSize];
+  String base64Audio;
+
+  while (file.available()) {
+    // Leer datos del archivo en el búfer
+    size_t bytesRead = file.read(buffer, bufferSize);
+
+    // Imprimir el contenido del búfer (solo para propósitos de diagnóstico)
+    Serial.write(buffer, bytesRead);
+
+    // Convertir el búfer a Base64 y agregarlo a la cadena
+    base64Audio += base64::encode(buffer, bytesRead);
+  }
+
+  // Cerrar el archivo
   file.close();
 
-  String base64Audio = base64::encode(buffer, size);
-  free(buffer);
   return base64Audio;
 }
-
+*/
 
 // Función para capturar audio 
 /*
@@ -174,9 +192,9 @@ String captureAudio() {
 */
 
 
-// Función para enviar audio a Google Cloud Speech-to-Text
 
 // Función para transcribir el audio utilizando Google Cloud Speech-to-Text
+/*
 String transcribeSpeech(String audioData, const char* apiKey) {
     HTTPClient http;
 
@@ -201,10 +219,10 @@ String transcribeSpeech(String audioData, const char* apiKey) {
     // Si la solicitud fue exitosa, obtener la transcripción
     if (httpResponseCode == HTTP_CODE_OK) {
         String response = http.getString();
-        /*
+        
         Serial.println("Respuesta de la API:");
         Serial.println(response);
-        */
+        
         // Analizar la respuesta JSON para obtener la transcripción
         DynamicJsonDocument doc(4096); // Aumentado el tamaño del documento
         DeserializationError error = deserializeJson(doc, response);
@@ -235,7 +253,65 @@ String transcribeSpeech(String audioData, const char* apiKey) {
 
     return transcribedText;
 }
+*/
+#include <Arduino.h>
+#include <HTTPClient.h>
 
+String transcribeSpeech(String filename, const char* apiKey) {
+    HTTPClient http;
+
+    // URL de la API de Google Cloud Speech-to-Text
+    String url = "https://speech.googleapis.com/v1/speech:recognize?key=";
+    url += apiKey;
+
+    // Configurar la solicitud HTTP
+    http.begin(url);
+    http.addHeader("Content-Type", "application/json");
+
+    // Crear el cuerpo de la solicitud JSON
+    String jsonBody = "{\"config\": {\"encoding\":\"LINEAR16\",\"sampleRateHertz\":16000},\"audio\": {\"uri\":\"gs://your-bucket-name/";
+    jsonBody += filename; // Si el archivo está almacenado en Google Cloud Storage
+    jsonBody += "\"}}";
+
+    // Enviar la solicitud POST con el cuerpo JSON
+    int httpResponseCode = http.POST(jsonBody);
+
+    String transcribedText = "";
+
+    // Si la solicitud fue exitosa, obtener la transcripción
+    if (httpResponseCode == HTTP_CODE_OK) {
+        String response = http.getString();
+
+        // Analizar la respuesta JSON para obtener la transcripción
+        DynamicJsonDocument doc(4096); // Aumentar el tamaño del documento si es necesario
+        DeserializationError error = deserializeJson(doc, response);
+
+        if (error) {
+            Serial.print("deserializeJson() failed: ");
+            Serial.println(error.c_str());
+        } else {
+            if (doc.containsKey("results")) {
+                JsonObject result = doc["results"][0];
+                if (result.containsKey("alternatives")) {
+                    JsonObject alternative = result["alternatives"][0];
+                    if (alternative.containsKey("transcript")) {
+                        transcribedText = alternative["transcript"].as<String>();
+                    }
+                }
+            } else {
+                Serial.println("No se encontró el campo 'results' en la respuesta JSON");
+            }
+        }
+    } else {
+        Serial.print("Error en la solicitud: ");
+        Serial.println(httpResponseCode);
+    }
+
+    // Liberar los recursos
+    http.end();
+
+    return transcribedText;
+}
 
 // Función para obtener el código de idioma a partir del nombre del idioma
 /*
