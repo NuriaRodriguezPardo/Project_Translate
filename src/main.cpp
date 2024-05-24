@@ -12,10 +12,10 @@
 
 // FUNCIONS
 // uint8_t* readAudioFromSD(const char* filename, size_t* audioSize);
-bool obtenerAudioDesdeSD(char* buffer, size_t bufferSize);
+bool obtenerAudioDesdeSD(String &audioBase64);
 // String readAudioFileAndConvertToBase64(const char* filename);
 // String captureAudio();
-String transcribeSpeech(String audioData, const char* apiKey);
+String transcribeSpeech(String audioBase, const char* apiKey);
 // String getLanguageCode(const char* languageName);
 // String translateText(String text, const char* apiKey, const char* targetLanguage);
 // void speakText(String text, const char* apiKey, const char* targetLanguage);
@@ -25,14 +25,10 @@ String transcribeSpeech(String audioData, const char* apiKey);
 const char* ssid = "RedmiNuria";
 const char* password = "Patata123";
 const char* apiKey = "AIzaSyCz4Pb-7OIi3Gs6LGgJ-XHZ2Xy__hRAeZQ";
-const char* filename = "/audio.WAV";
+const char* filename = "/prueba-base64.txt";
 
 // Función para conectar a WiFi
 void connectToWiFi() {
-    // Configurar DNS manualmente
-    // IPAddress dns1(8, 8, 8, 8); // DNS de Google
-    // IPAddress dns2(8, 8, 4, 4); // DNS de Google
-
     // WiFi.config(INADDR_NONE, INADDR_NONE, INADDR_NONE, dns1, dns2);
     WiFi.begin(ssid, password);
     Serial.print("Conectando a WiFi");
@@ -72,14 +68,14 @@ void setup() {
     // Esperar a que se inicialice Serial
     while (!Serial) {}
 
-    const size_t bufferSize = 1024; // Define un tamaño de buffer adecuado
-    char audioBuffer[bufferSize];
+    // const size_t bufferSize = 1024; // Define un tamaño de buffer adecuado
+    String audioBase;
 
-    if (obtenerAudioDesdeSD(audioBuffer, bufferSize)) {
+    if (obtenerAudioDesdeSD(audioBase)) {
         Serial.println("Archivo de audio leído correctamente");
         // String audioBase64 = readAudioFileAndConvertToBase64(filename);
         // Convertir el audio a texto
-        String transcribedText = transcribeSpeech(audioBuffer, apiKey);
+        String transcribedText = transcribeSpeech(audioBase, apiKey);
         // Imprimir el texto transcrito
         Serial.println("Texto transcrito:");
         Serial.println(transcribedText);
@@ -104,25 +100,29 @@ void setup() {
 
 const int chipSelect = 39; // Cambia esto según el pin que uses
 
-bool obtenerAudioDesdeSD(char* buffer, size_t bufferSize) {
+bool obtenerAudioDesdeSD(String &audioBase64) {
   // Inicializar la tarjeta SD
-  SPI.begin(36, 37, 35); //  void begin(int8_t sck=-1, int8_t miso=-1, int8_t mosi=-1, int8_t ss=-1);
+  SPI.begin(36, 37, 35); // void begin(int8_t sck=-1, int8_t miso=-1, int8_t mosi=-1, int8_t ss=-1);
   if (!SD.begin(chipSelect)) {
     Serial.println("Error al montar la tarjeta SD");
     return false;
   }
 
-  // Abrir el archivo de audio
-  File archivo = SD.open("/audio.WAV", FILE_READ);
+  // Abrir el archivo de texto con el contenido Base64
+  File archivo = SD.open("/pruebaBase64.txt", FILE_READ);
   if (!archivo) {
-    Serial.println("Error al abrir el archivo de audio");
+    Serial.println("Error al abrir el archivo de texto");
     return false;
   }
 
-  // Leer el contenido del archivo
-  size_t bytesRead = 0;
-  while (archivo.available() && bytesRead < bufferSize) {
-    buffer[bytesRead++] = archivo.read();
+  // Leer el contenido del archivo de texto y almacenar en un String
+  audioBase64 = "";
+  while (archivo.available()) {
+    char c = archivo.read();
+    // Solo agregar caracteres válidos de Base64
+    if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '+' || c == '/' || c == '=') {
+      audioBase64 += c;
+    }
   }
 
   // Cerrar el archivo
@@ -130,6 +130,8 @@ bool obtenerAudioDesdeSD(char* buffer, size_t bufferSize) {
 
   return true;
 }
+
+
 
 /*
 String readAudioFileAndConvertToBase64(const char* filename) {
@@ -254,24 +256,30 @@ String transcribeSpeech(String audioData, const char* apiKey) {
     return transcribedText;
 }
 */
-#include <Arduino.h>
-#include <HTTPClient.h>
 
-String transcribeSpeech(String filename, const char* apiKey) {
+
+String transcribeSpeech(String audioBase, const char* apiKey) {
     HTTPClient http;
-
+    const size_t bufferSize = 1024; // Define un tamaño de buffer adecuado
+    // obtenerAudioDesdeSD(audioBase);
     // URL de la API de Google Cloud Speech-to-Text
     String url = "https://speech.googleapis.com/v1/speech:recognize?key=";
     url += apiKey;
+
+    Serial.println(url);
 
     // Configurar la solicitud HTTP
     http.begin(url);
     http.addHeader("Content-Type", "application/json");
 
     // Crear el cuerpo de la solicitud JSON
-    String jsonBody = "{\"config\": {\"encoding\":\"LINEAR16\",\"sampleRateHertz\":16000},\"audio\": {\"uri\":\"gs://your-bucket-name/";
-    jsonBody += filename; // Si el archivo está almacenado en Google Cloud Storage
+    String jsonBody = "{\"config\": {\"encoding\":\"LINEAR16\",\"sampleRateHertz\":16000, \"languageCode\": \"es\"},\"audio\": {\"content\":\"";
+    jsonBody += audioBase;
     jsonBody += "\"}}";
+
+    // jsonBody += filename; // Si el archivo está almacenado en Google Cloud Storage
+    // jsonBody += "\"}}";
+    Serial.println(jsonBody);
 
     // Enviar la solicitud POST con el cuerpo JSON
     int httpResponseCode = http.POST(jsonBody);
