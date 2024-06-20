@@ -139,8 +139,6 @@ const char* index_html = R"rawliteral(
 
 
 
-
-
 /*
 void loop() {
     // No hace falta nada aquí

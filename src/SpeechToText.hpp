@@ -82,15 +82,6 @@ void setup() {
 // const int chipSelect = 39; // Cambia esto según el pin que uses
 
 bool obtenerAudioDesdeSD(char* &audioBase64) {
-    /*
-    // Inicializar la tarjeta SD
-    SPI.begin(36, 37, 35); // void begin(int8_t sck=-1, int8_t miso=-1, int8_t mosi=-1, int8_t ss=-1);
-    if (!SD.begin(chipSelect)) {
-        Serial.println("Error al montar la tarjeta SD");
-        return false;
-    }
-    */
-
     // Abrir el archivo de texto con el contenido Base64
     File archivo = SD.open("/grabacion64.txt", FILE_READ);
     if (!archivo) {
